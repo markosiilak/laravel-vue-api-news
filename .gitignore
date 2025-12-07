@@ -1,0 +1,41 @@
+# Laravel Backend
+/backend/.env
+/backend/vendor
+/backend/node_modules
+/backend/storage/*.key
+/backend/storage/app/*
+!/backend/storage/app/.gitignore
+/backend/storage/framework/cache/*
+!/backend/storage/framework/cache/.gitignore
+/backend/storage/framework/sessions/*
+!/backend/storage/framework/sessions/.gitignore
+/backend/storage/framework/testing/*
+!/backend/storage/framework/testing/.gitignore
+/backend/storage/framework/views/*
+!/backend/storage/framework/views/.gitignore
+/backend/storage/logs/*
+!/backend/storage/logs/.gitignore
+/backend/bootstrap/cache/*
+!/backend/bootstrap/cache/.gitignore
+/backend/.phpunit.result.cache
+/backend/auth.json
+
+# Nuxt Frontend
+/frontend/.nuxt
+/frontend/.output
+/frontend/node_modules
+/frontend/.env
+/frontend/dist
+
+# IDE & OS
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

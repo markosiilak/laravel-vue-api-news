@@ -1,0 +1,18 @@
+{
+  "name": "laravel-project",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "frontend": "cd frontend && npm run dev",
+    "backend": "cd backend && php artisan serve",
+    "preview": "vite preview",
+    "watch": "vite build --watch",
+    "prod": "vite build --mode production",
+    "lint": "eslint resources/js --ext .js,.jsx,.vue",
+    "lint:fix": "eslint resources/js --ext .js,.jsx,.vue --fix",
+    "format": "prettier --write \"resources/**/*.{js,jsx,vue,css,scss}\"",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage"
+  }
+}
