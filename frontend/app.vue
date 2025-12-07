@@ -3,13 +3,17 @@
     <v-app-bar color="primary" prominent>
       <v-app-bar-title class="text-h4 font-weight-bold">
         <v-icon icon="mdi-newspaper" class="mr-2"></v-icon>
-        Latest News Headlines
+        Saved News Articles
       </v-app-bar-title>
       
       <template v-slot:append>
-        <v-chip v-if="data?.cached" color="success" variant="flat" class="mr-4">
-          <v-icon start icon="mdi-database"></v-icon>
-          Cached • Updates every 15 min
+        <v-chip 
+          color="purple" 
+          variant="flat" 
+          class="mr-4"
+        >
+          <v-icon start icon="mdi-database-check"></v-icon>
+          {{ dbStats?.total_articles || 0 }} Articles Saved
         </v-chip>
       </template>
     </v-app-bar>
@@ -64,10 +68,10 @@
         </v-row>
 
         <!-- News Grid -->
-        <v-row v-else-if="data && data.success && data.articles">
+        <v-row v-else-if="displayArticles && displayArticles.length > 0">
           <v-col
-            v-for="(article, index) in data.articles"
-            :key="index"
+            v-for="(article, index) in displayArticles"
+            :key="article.id || index"
             cols="12"
             sm="6"
             md="4"
@@ -82,8 +86,8 @@
               elevation="2"
             >
               <v-img
-                v-if="article.urlToImage"
-                :src="article.urlToImage"
+                v-if="article.urlToImage || article.url_to_image"
+                :src="article.urlToImage || article.url_to_image"
                 height="200"
                 cover
                 @error="handleImageError"
@@ -101,7 +105,7 @@
                 size="small"
                 label
               >
-                {{ article.source?.name || 'Unknown Source' }}
+                {{ getSourceName(article) }}
               </v-chip>
 
               <v-card-title class="text-h6 font-weight-bold">
@@ -131,7 +135,7 @@
                   prepend-icon="mdi-clock-outline"
                   class="text-caption"
                 >
-                  {{ formatDate(article.publishedAt) }}
+                  {{ formatDate(article.publishedAt || article.published_at) }}
                 </v-chip>
               </v-card-actions>
             </v-card>
@@ -169,21 +173,35 @@ const categories = [
   { title: 'Technology', value: 'technology' },
 ]
 
-// Fetch latest news headlines from Laravel API
+// Fetch saved news from database
 const { data, pending, error, refresh } = await useFetch(
   () => {
-    if (selectedCategory.value) {
-      return `${config.public.apiBase}/news/category/${selectedCategory.value}`
-    }
-    return `${config.public.apiBase}/news`
+    const params = selectedCategory.value ? `?category=${selectedCategory.value}` : ''
+    return `${config.public.apiBase}/news/saved${params}`
   },
   {
     watch: [selectedCategory]
   }
 )
 
+// Fetch database stats
+const { data: dbStats } = await useFetch(
+  `${config.public.apiBase}/news/stats`
+)
+
+const displayArticles = computed(() => {
+  if (!data.value) return []
+  return data.value.articles || []
+})
+
 const fetchNewsByCategory = () => {
   refresh()
+}
+
+const getSourceName = (article: any) => {
+  if (article.source?.name) return article.source.name
+  if (article.source_name) return article.source_name
+  return 'Unknown Source'
 }
 
 const formatDate = (dateString: string) => {

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use App\Models\NewsArticle;
 
 class DataController extends Controller
 {
@@ -43,6 +44,9 @@ class DataController extends Controller
 
             if ($response->successful()) {
                 $data = $response->json();
+
+                // Save articles to database
+                $this->saveArticlesToDatabase($data['articles'] ?? [], 'general');
 
                 // Store in cache for 15 minutes
                 Cache::put($cacheKey, [
@@ -106,6 +110,9 @@ class DataController extends Controller
 
             if ($response->successful()) {
                 $data = $response->json();
+
+                // Save articles to database
+                $this->saveArticlesToDatabase($data['articles'] ?? [], 'search');
 
                 // Store in cache for 15 minutes
                 Cache::put($cacheKey, [
@@ -176,6 +183,9 @@ class DataController extends Controller
             if ($response->successful()) {
                 $data = $response->json();
 
+                // Save articles to database with category
+                $this->saveArticlesToDatabase($data['articles'] ?? [], $category);
+
                 // Store in cache for 15 minutes
                 Cache::put($cacheKey, [
                     'totalResults' => $data['totalResults'] ?? 0,
@@ -215,5 +225,97 @@ class DataController extends Controller
             'success' => true,
             'message' => 'Cache cleared successfully'
         ]);
+    }
+
+    /**
+     * Save articles to database
+     */
+    private function saveArticlesToDatabase($articles, $category = null)
+    {
+        foreach ($articles as $article) {
+            try {
+                NewsArticle::updateOrCreate(
+                    ['url' => $article['url']], // Find by URL
+                    [
+                        'source_id' => $article['source']['id'] ?? null,
+                        'source_name' => $article['source']['name'] ?? 'Unknown',
+                        'author' => $article['author'] ?? null,
+                        'title' => $article['title'] ?? 'No title',
+                        'description' => $article['description'] ?? null,
+                        'url_to_image' => $article['urlToImage'] ?? null,
+                        'published_at' => $article['publishedAt'] ?? now(),
+                        'content' => $article['content'] ?? null,
+                        'category' => $category,
+                    ]
+                );
+            } catch (\Exception $e) {
+                // Continue saving other articles if one fails
+                continue;
+            }
+        }
+    }
+
+    /**
+     * Get saved news articles from database
+     */
+    public function getSavedNews(Request $request)
+    {
+        try {
+            $category = $request->input('category');
+            $perPage = $request->input('per_page', 20);
+
+            $query = NewsArticle::orderBy('published_at', 'desc');
+
+            if ($category && $category !== 'all') {
+                $query->where('category', $category);
+            }
+
+            $articles = $query->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'source' => 'database',
+                'total' => $articles->total(),
+                'current_page' => $articles->currentPage(),
+                'last_page' => $articles->lastPage(),
+                'articles' => $articles->items()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get database statistics
+     */
+    public function getDatabaseStats()
+    {
+        try {
+            $totalArticles = NewsArticle::count();
+            $categoryCounts = NewsArticle::selectRaw('category, COUNT(*) as count')
+                ->groupBy('category')
+                ->get();
+
+            $latestArticle = NewsArticle::orderBy('published_at', 'desc')->first();
+            $oldestArticle = NewsArticle::orderBy('published_at', 'asc')->first();
+
+            return response()->json([
+                'success' => true,
+                'total_articles' => $totalArticles,
+                'categories' => $categoryCounts,
+                'latest_article' => $latestArticle ? $latestArticle->published_at : null,
+                'oldest_article' => $oldestArticle ? $oldestArticle->published_at : null,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
