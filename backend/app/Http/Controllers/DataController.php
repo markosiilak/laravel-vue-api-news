@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 use App\Models\NewsArticle;
 
 class DataController extends Controller
@@ -234,6 +235,12 @@ class DataController extends Controller
     {
         foreach ($articles as $article) {
             try {
+                // Download and save image if URL exists
+                $localImagePath = null;
+                if (!empty($article['urlToImage'])) {
+                    $localImagePath = $this->downloadImage($article['urlToImage'], $article['title'] ?? 'untitled');
+                }
+
                 NewsArticle::updateOrCreate(
                     ['url' => $article['url']], // Find by URL
                     [
@@ -242,7 +249,7 @@ class DataController extends Controller
                         'author' => $article['author'] ?? null,
                         'title' => $article['title'] ?? 'No title',
                         'description' => $article['description'] ?? null,
-                        'url_to_image' => $article['urlToImage'] ?? null,
+                        'url_to_image' => $localImagePath ?? $article['urlToImage'] ?? null,
                         'published_at' => $article['publishedAt'] ?? now(),
                         'content' => $article['content'] ?? null,
                         'category' => $category,
@@ -256,18 +263,64 @@ class DataController extends Controller
     }
 
     /**
+     * Download image from URL and save locally
+     */
+    private function downloadImage($imageUrl, $title)
+    {
+        try {
+            // Generate a safe filename
+            $filename = preg_replace('/[^a-z0-9]+/', '-', strtolower($title));
+            $filename = substr($filename, 0, 50); // Limit length
+            $extension = pathinfo(parse_url($imageUrl, PHP_URL_PATH), PATHINFO_EXTENSION);
+
+            // If no extension found, default to jpg
+            if (empty($extension) || !in_array($extension, ['jpg', 'jpeg', 'png', 'gif', 'webp'])) {
+                $extension = 'jpg';
+            }
+
+            // Create unique filename with timestamp
+            $uniqueFilename = $filename . '-' . time() . '.' . $extension;
+            $path = 'news-images/' . $uniqueFilename;
+
+            // Download image
+            $imageContents = Http::timeout(10)->get($imageUrl)->body();
+
+            // Save to storage/app/public/news-images/
+            Storage::disk('public')->put($path, $imageContents);
+
+            // Return the public URL path
+            return '/storage/' . $path;
+
+        } catch (\Exception $e) {
+            // If download fails, return null (will use original URL as fallback)
+            return null;
+        }
+    }
+
+    /**
      * Get saved news articles from database
      */
     public function getSavedNews(Request $request)
     {
         try {
             $category = $request->input('category');
-            $perPage = $request->input('per_page', 20);
+            $perPage = $request->input('per_page', 1000); // Increased default to show all
 
             $query = NewsArticle::orderBy('published_at', 'desc');
 
             if ($category && $category !== 'all') {
                 $query->where('category', $category);
+            }
+
+            // Get all articles (or use pagination if per_page is specified)
+            if ($perPage === 'all') {
+                $articles = $query->get();
+                return response()->json([
+                    'success' => true,
+                    'source' => 'database',
+                    'total' => $articles->count(),
+                    'articles' => $articles
+                ]);
             }
 
             $articles = $query->paginate($perPage);
@@ -279,6 +332,42 @@ class DataController extends Controller
                 'current_page' => $articles->currentPage(),
                 'last_page' => $articles->lastPage(),
                 'articles' => $articles->items()
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Import new news from all categories
+     */
+    public function importNews()
+    {
+        try {
+            $categories = ['business', 'entertainment', 'health', 'science', 'sports', 'technology'];
+            $totalNewArticles = 0;
+            $beforeCount = NewsArticle::count();
+
+            // Fetch from multiple categories
+            foreach ($categories as $category) {
+                $this->getNewsByCategory($category);
+            }
+
+            // Also fetch general headlines
+            $this->getAllNews();
+
+            $afterCount = NewsArticle::count();
+            $totalNewArticles = $afterCount - $beforeCount;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'News imported successfully',
+                'new_articles' => $totalNewArticles,
+                'total_articles' => $afterCount
             ]);
 
         } catch (\Exception $e) {

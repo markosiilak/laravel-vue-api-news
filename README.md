@@ -119,15 +119,47 @@ laravel/
 
 4. **Update Controller to Save Data** (`backend/app/Http/Controllers/DataController.php`)
    - Add `saveArticlesToDatabase()` method
+   - Add `downloadImage()` method for local image storage
    - Use `updateOrCreate()` to prevent duplicates (match by URL)
+   - Download images from external URLs to `storage/app/public/news-images/`
    - Call after successful API fetch in all news methods
    - Handle save errors gracefully
 
-5. **Add Database Endpoints** (`backend/routes/api.php`)
+5. **Setup Storage Link**
+   ```bash
+   php artisan storage:link
+   ```
+   - Creates symbolic link from `public/storage` to `storage/app/public`
+   - Enables public access to downloaded images
+
+6. **Add Database Endpoints** (`backend/routes/api.php`)
    - `GET /api/news/saved` - Get articles from database
    - `GET /api/news/stats` - Get database statistics
+   - `POST /api/news/import` - Import new news from all categories
 
-### Step 4: Key Features Implementation
+### Step 4: Automated News Importing
+
+1. **Create Artisan Command** (`backend/app/Console/Commands/FetchNews.php`)
+   ```bash
+   php artisan make:command FetchNews
+   ```
+   - Command signature: `news:fetch {--category=all}`
+   - Fetches news from all categories or specific category
+   - Displays progress and results
+
+2. **Add Scheduled Task** (`backend/bootstrap/app.php`)
+   - Configure `withSchedule()` method
+   - Schedule `news:fetch --category=all` to run hourly
+   - Use `withoutOverlapping()` to prevent concurrent runs
+   - Run in background mode
+
+3. **Manual Import Endpoint** (`backend/app/Http/Controllers/DataController.php`)
+   - `importNews()` method
+   - Fetches from all 6 categories + general headlines
+   - Returns count of newly imported articles
+   - Preserves existing articles (no duplicates)
+
+### Step 5: Key Features Implementation
 
 1. **News Fetching** (`backend/app/Http/Controllers/DataController.php`)
    - Backend: `Http::get()` to call NewsAPI
@@ -148,18 +180,21 @@ laravel/
    - Continue on individual save errors
 
 4. **Frontend Data Fetching** (`frontend/app.vue`)
-   - Use `useFetch()` with reactive URL based on category selection
-   - Toggle between API and database data sources
+   - Use `useFetch()` to fetch saved news from database
    - Watch category changes to refetch data
-   - Display cached status and data source
+   - Display all saved articles (up to 1000)
+   - Show real-time article count
 
 5. **UI Components** (`frontend/app.vue`)
-   - **App Bar**: Shows title, icon, cache indicator, and view toggle button
+   - **App Bar**: Shows title, icon, article count, and import button
+   - **Import Button**: One-click import with loading state and success notification
    - **Category Filter**: `v-select` with all news categories
    - **Database Stats**: Show total saved articles count
-   - **News Cards**: `v-card` with image, title, description, metadata
+   - **News Cards**: `v-card` with locally stored images, title, description, metadata
+   - **Image Handler**: `getImageUrl()` function to properly load local images
    - **Loading State**: `v-progress-circular` spinner
    - **Error State**: `v-alert` with helpful messages
+   - **Success Snackbar**: Shows import results
 
 6. **Responsive Design** (`frontend/app.vue`)
    - Vuetify's grid system (`v-container`, `v-row`, `v-col`)
@@ -181,14 +216,14 @@ laravel/
    ```
 
 3. **Test Features**
-   - Load initial news (first API call, articles saved to database)
-   - Refresh page (should show cached data)
-   - Switch categories (separate cache per category, saves new articles)
-   - Click "View Saved" button (switch to database view)
-   - Click "View Live" button (switch back to API view)
-   - Check database stats displayed
-   - Wait 15 minutes (cache expires, fresh data)
-   - Check cache indicator badge appears
+   - Click "Import New News" button to fetch articles
+   - Watch as articles are downloaded with images
+   - View imported articles displayed from database
+   - Switch categories to filter saved articles
+   - Check article count badge updates
+   - Verify images load from local storage
+   - Test manual import: `php artisan news:fetch --category=all`
+   - Optionally start scheduler: `php artisan schedule:work`
 
 ### Step 6: Documentation
 
@@ -204,7 +239,9 @@ laravel/
 
 - **Laravel Backend**: RESTful API that fetches news from NewsAPI.org with smart caching
 - **Database Storage**: Automatically saves all fetched news articles to SQLite database
-- **Dual View Modes**: Switch between live API data and saved database records
+- **Local Image Storage**: Downloads and stores news images locally on your server
+- **One-Click Import**: Import new news articles with a single button click
+- **Automated Updates**: Scheduled hourly news fetching from all categories
 - **Nuxt 3 Frontend**: Vue 3 application with Vuetify Material Design UI
 - **News Categories**: Filter by Business, Entertainment, Health, Science, Sports, Technology
 - **Real-time News**: Get latest headlines from 150,000+ sources worldwide
@@ -212,7 +249,7 @@ laravel/
 - **Database Statistics**: View total saved articles and category distribution
 - **Vuetify UI**: Modern Material Design interface with beautiful components
 - **Responsive Design**: Adapts seamlessly to all screen sizes
-- **Pagination**: Database view supports pagination for large article sets
+- **Fast Performance**: Display up to 1000 articles instantly from database
 
 ## Setup Instructions
 
@@ -263,11 +300,12 @@ The Nuxt application will be available at `http://localhost:3000`
 - `POST /api/news/clear-cache` - Clear all news cache
 
 **Database Endpoints (fetch saved articles):**
-- `GET /api/news/saved` - Get all saved news from database (paginated)
+- `GET /api/news/saved` - Get all saved news from database (default: 1000 articles)
 - `GET /api/news/saved?category={category}` - Get saved news filtered by category
 - `GET /api/news/saved?per_page=50` - Get saved news with custom page size
+- `GET /api/news/saved?per_page=all` - Get all saved articles without pagination
 - `GET /api/news/stats` - Get database statistics (total articles, category counts, date ranges)
-  - Valid categories: business, entertainment, general, health, science, sports, technology
+- `POST /api/news/import` - Import new news from all categories (6 categories + general)
 - `POST /api/news/clear-cache` - Clear all news cache
 
 ### Example API Calls
@@ -286,44 +324,66 @@ curl http://localhost:8000/api/news/category/technology
 
 **Database API:**
 ```bash
-# Get all saved articles
+# Get all saved articles (up to 1000)
 curl http://localhost:8000/api/news/saved
 
 # Get saved business articles
 curl http://localhost:8000/api/news/saved?category=business
 
+# Get ALL articles without limit
+curl http://localhost:8000/api/news/saved?per_page=all
+
+# Import new news from all categories
+curl -X POST http://localhost:8000/api/news/import
+
 # Get database statistics
 curl http://localhost:8000/api/news/stats
+```
+
+**Artisan Commands:**
+```bash
+# Import news from all categories
+php artisan news:fetch --category=all
+
+# Import news from specific category
+php artisan news:fetch --category=technology
+
+# Start the scheduler (runs hourly import automatically)
+php artisan schedule:work
 ```
 
 ## Frontend Features
 
 - **Material Design UI**: Built with Vuetify 3 components
-- **Dual View Toggle**: Switch between live API data and saved database records with one click
-- **Professional App Bar**: Header with icon, data source indicator, and view toggle button
+- **One-Click Import**: "Import New News" button fetches and saves articles from all categories
+- **Professional App Bar**: Header with icon, article count badge, and import button
 - **Category Filter**: Elegant dropdown with Material Design styling
-- **Database Statistics**: Display total saved articles count in real-time
-- **News Cards**: Beautiful cards with images, hover effects, and smooth transitions
+- **Real-time Statistics**: Display total saved articles count that updates after import
+- **Local Images**: All images downloaded and served from your own server
+- **News Cards**: Beautiful cards with locally stored images, hover effects, and smooth transitions
 - **Smart Image Loading**: Lazy loading with placeholder spinners
+- **Image Error Handling**: Gracefully handles missing or broken images
 - **Read More**: Cards link directly to full articles
 - **Responsive Grid**: Adapts seamlessly to mobile, tablet, and desktop
-- **Cache Indicator**: Visual badge shows when viewing cached data
+- **Success Notifications**: Green snackbar shows import results
 - **Error Handling**: User-friendly alerts with helpful messages
-- **Loading States**: Circular progress indicators during data fetch
+- **Loading States**: Circular progress indicators during data fetch and import
 - **Relative Time Display**: Shows "5h ago" for recent articles
 
 ## How It Works
 
 1. **NewsAPI Integration**: Laravel backend fetches real-time news from NewsAPI.org (150,000+ sources)
 2. **Automatic Database Storage**: Every fetched article is automatically saved to SQLite database
-3. **Smart Caching**: News data is cached for 15 minutes to minimize API calls
-4. **Dual Data Sources**: 
-   - **Live View**: Fetches from NewsAPI (with caching) and saves to database
-   - **Database View**: Displays saved articles from local database (no API calls)
-5. **Laravel API**: Processes and returns news data through clean REST endpoints
-6. **Nuxt Frontend**: Fetches data from Laravel API and displays in Material Design UI with Vuetify
-7. **Toggle Views**: Users can switch between live and saved data with a single button click
-8. **Database Statistics**: Real-time stats show how many articles are stored and when they were last updated
+3. **Local Image Download**: Images are downloaded from external sources and stored in `storage/app/public/news-images/`
+4. **Smart Caching**: News data is cached for 15 minutes to minimize API calls during fetching
+5. **Import Options**:
+   - **Manual Import**: Click "Import New News" button in frontend
+   - **CLI Import**: Run `php artisan news:fetch --category=all` command
+   - **Automated Import**: Scheduled task runs hourly (`php artisan schedule:work`)
+6. **Database-Only View**: Frontend displays only saved articles from local database (fast, no API calls)
+7. **Laravel API**: Processes and returns news data through clean REST endpoints
+8. **Nuxt Frontend**: Fetches data from Laravel API and displays in Material Design UI with Vuetify
+9. **Database Statistics**: Real-time stats show how many articles are stored and category distribution
 
 ## Technologies Used
 
@@ -385,16 +445,25 @@ The application implements both caching and database storage for optimal perform
    - Updates database with any new articles
    - Creates new cache
    
-4. **Database View**:
+4. **Frontend Display**:
    - Always reads from database
    - No API calls needed
    - No cache dependency
-   - Instant access to all saved articles
+   - Instant access to all saved articles (up to 1000)
+   - Images served from local storage
+
+### Image Storage
+
+- **Download Process**: Images downloaded during news import
+- **Storage Location**: `storage/app/public/news-images/`
+- **Public Access**: Symlinked to `public/storage/` via `php artisan storage:link`
+- **Fallback**: If image download fails, original URL is stored
+- **Performance**: Local images load faster than external sources
 
 ### Visual Indicators
 
-- **Green "Cached" Badge**: Data from memory cache (recent API call)
-- **Purple "From Database" Badge**: Data from local database (saved articles)
+- **Purple Badge**: Shows total number of saved articles in app bar
+- **Success Snackbar**: Green notification after successful import with article count
 
 ### Customize Cache Duration
 
@@ -405,6 +474,27 @@ private $cacheDuration = 15; // Change to 30, 60, etc. (minutes)
 ```
 
 ## Customization Options
+
+### Change Import Schedule
+
+Edit `backend/bootstrap/app.php`:
+
+```php
+->withSchedule(function (Schedule $schedule): void {
+    $schedule->command('news:fetch --category=all')
+             ->daily() // Change to: hourly(), twiceDaily(), weekly(), etc.
+             ->withoutOverlapping()
+             ->runInBackground();
+})
+```
+
+### Change Article Limit
+
+Edit `backend/app/Http/Controllers/DataController.php` in `getSavedNews()` method:
+
+```php
+$perPage = $request->input('per_page', 1000); // Change default limit
+```
 
 ### Change News Country
 
@@ -454,7 +544,24 @@ Make sure `backend/config/cors.php` allows requests from your frontend origin.
 
 ### Images Not Loading
 
-Some articles may not have images. The app handles this gracefully by hiding broken images.
+1. Make sure storage link exists: `php artisan storage:link`
+2. Check `storage/app/public/news-images/` directory exists
+3. Verify images are being downloaded during import
+4. Check Laravel backend is serving images from `http://localhost:8000/storage/`
+5. Look for image download errors in Laravel logs
+
+### Import Not Working
+
+1. Verify NewsAPI key is set in `backend/.env`
+2. Check you haven't exceeded 100 requests/day limit
+3. Try manual import: `php artisan news:fetch --category=technology`
+4. Check Laravel logs for errors: `backend/storage/logs/laravel.log`
+
+### Scheduler Not Running
+
+1. Start scheduler manually: `php artisan schedule:work`
+2. For production, add to crontab: `* * * * * cd /path/to/project/backend && php artisan schedule:run`
+3. Verify scheduled task: `php artisan schedule:list`
 
 ## Alternative News APIs
 

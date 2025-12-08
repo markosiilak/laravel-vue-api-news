@@ -17,3 +17,4 @@ Route::post('/news/clear-cache', [DataController::class, 'clearCache']); // Clea
 // Database routes
 Route::get('/news/saved', [DataController::class, 'getSavedNews']); // Get saved news from database
 Route::get('/news/stats', [DataController::class, 'getDatabaseStats']); // Get database statistics
+Route::post('/news/import', [DataController::class, 'importNews']); // Import new news from API

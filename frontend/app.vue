@@ -7,6 +7,17 @@
       </v-app-bar-title>
       
       <template v-slot:append>
+        <v-btn
+          @click="importNews"
+          :loading="importing"
+          :disabled="importing"
+          variant="elevated"
+          color="white"
+          class="mr-2"
+        >
+          <v-icon start>mdi-download</v-icon>
+          Import New News
+        </v-btn>
         <v-chip 
           color="purple" 
           variant="flat" 
@@ -20,6 +31,17 @@
 
     <v-main>
       <v-container fluid class="pa-6">
+        <!-- Import Success Snackbar -->
+        <v-snackbar
+          v-model="showImportSuccess"
+          :timeout="4000"
+          color="success"
+          location="top"
+        >
+          <v-icon start>mdi-check-circle</v-icon>
+          {{ importMessage }}
+        </v-snackbar>
+
         <!-- Filter Bar -->
         <v-row justify="center" class="mb-6">
           <v-col cols="12" md="6" lg="4">
@@ -87,7 +109,7 @@
             >
               <v-img
                 v-if="article.urlToImage || article.url_to_image"
-                :src="article.urlToImage || article.url_to_image"
+                :src="getImageUrl(article)"
                 height="200"
                 cover
                 @error="handleImageError"
@@ -162,6 +184,9 @@
 <script setup lang="ts">
 const config = useRuntimeConfig()
 const selectedCategory = ref('')
+const importing = ref(false)
+const showImportSuccess = ref(false)
+const importMessage = ref('')
 
 const categories = [
   { title: 'All Categories', value: '' },
@@ -185,7 +210,7 @@ const { data, pending, error, refresh } = await useFetch(
 )
 
 // Fetch database stats
-const { data: dbStats } = await useFetch(
+const { data: dbStats, refresh: refreshStats } = await useFetch(
   `${config.public.apiBase}/news/stats`
 )
 
@@ -193,6 +218,29 @@ const displayArticles = computed(() => {
   if (!data.value) return []
   return data.value.articles || []
 })
+
+const importNews = async () => {
+  importing.value = true
+  try {
+    const response = await $fetch(`${config.public.apiBase}/news/import`, {
+      method: 'POST'
+    })
+    
+    if (response.success) {
+      importMessage.value = `✓ Imported ${response.new_articles || 0} new articles!`
+      showImportSuccess.value = true
+      
+      // Refresh the news list and stats
+      await refresh()
+      await refreshStats()
+    }
+  } catch (err) {
+    importMessage.value = '✗ Failed to import news. Please try again.'
+    showImportSuccess.value = true
+  } finally {
+    importing.value = false
+  }
+}
 
 const fetchNewsByCategory = () => {
   refresh()
@@ -202,6 +250,18 @@ const getSourceName = (article: any) => {
   if (article.source?.name) return article.source.name
   if (article.source_name) return article.source_name
   return 'Unknown Source'
+}
+
+const getImageUrl = (article: any) => {
+  const imageUrl = article.urlToImage || article.url_to_image
+  
+  // If it's a local path (starts with /storage/), prepend the backend URL
+  if (imageUrl && imageUrl.startsWith('/storage/')) {
+    return `http://localhost:8000${imageUrl}`
+  }
+  
+  // Otherwise return as-is (external URL or no image)
+  return imageUrl
 }
 
 const formatDate = (dateString: string) => {
@@ -225,7 +285,10 @@ const truncateAuthor = (author: string) => {
 }
 
 const handleImageError = (e: Event) => {
-  (e.target as HTMLImageElement).style.display = 'none'
+  const target = e.target as HTMLImageElement
+  if (target && target.style) {
+    target.style.display = 'none'
+  }
 }
 </script>
 
